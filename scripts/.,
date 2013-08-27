@@ -1,0 +1,328 @@
+#!/usr/bin/perl
+#use strict
+use Getopt::Long
+$Version = "0.0";
+my $Usage =<<EOF;
+##########################################################################
+#Function  : Build Script for Verilator Based Simulator
+#Version   : $Version
+#Written by: Andreas Olofson
+#Created   : Nov 5, 2008
+##########################################################################
+#Usage     : asimbuild     -t     <TopFilePath>
+#                         [-rtl   <RTLDirectory>]
+#                         [-dv    <DVDirectory>]
+#                         [-m     <MainCPPFilePath>]
+#                         [-s     <StimulusFile>]
+#                         [-conly <CompileOnly>]
+#                         [-trace <Trace ]
+#                         [-vargs <VerilatorArgs>]
+#                         [-d]
+#                         [-h]
+#
+##########################################################################
+EOF
+
+#Defining options to parse
+my $result =  GetOptions('t:s','rtl:s','dv:s','m:s', 's:s', 'c:s', 'trace:s','d:s','cc:s','conly:s','vcd:s','vargs:s','f:s','gcca:s', 'o:s','h:s');
+
+if(defined $opt_h){
+print "$Usage";
+print "#
+#-h     : Prints detailed help information
+#
+#-t     : Path to top level file.  Only one module in the top level file.
+#         The module name must be \"top\".  This is meant to be a verilog
+#         testbench wrapper.
+#
+#-vcd   : Dumps all signals to vcd file
+#
+#-o     : Simulator Name
+#-m     : Main CPP file.  This is the top level file used to instantiate
+#         the stimulus, design file, and clock generator.
+#         The default file name is $DVDIR/sc_main.cpp
+#
+#-s     : Stimulus file.  Full path to the stimulus file used. The interface
+#         must match the instantation on the main top level C file.a
+#         The file must be written in C/C++.
+#
+#-d     : Debug Switch.  Prints all command lines to screen.
+#
+#-f     : Verilog Command file (replaces the dv/rtl switches)
+#
+#-vargs : Command separated list enclosed in quotes containing verilog
+#         define statements.  Example:
+#         \"CFG_REALMEM,CFG_REALOSC\"
+#
+#-trace : Prints program trace to standard output
+#
+#
+##########################################################################
+";
+  exit;
+}
+elsif(!defined $opt_t){
+  print "$Usage";		
+  exit;
+}	
+
+##################################################################
+#System Variables (Need to fix this later, should come from .cshrc)
+#$SYSTEMC        = "/soft/systemc-2.2.0";
+#$SYSTEMC_KIT    = "/soft/systemc-2.2.0";
+#$SYSTEMPERL     = "/soft/SystemPerl-1.282";
+##$VERILATOR_ROOT = "/soft/verilator-3.703";
+#$VERILATOR_ROOT = "/soft/verilator-3.703";
+#$SYSTEMC        = "/soft/systemc-2.2.0";
+#$SYSTEMC_KIT    = "/soft/systemc-2.2.0";
+#$SYSTEMPERL     = "/soft/SystemPerl-1.282";
+##$VERILATOR_ROOT = "/soft/verilator-3.703";
+
+$SYSTEMC_KIT     = $ENV{SYSTEMC_KIT};
+$SYSTEMC         = $ENV{SYSTEMC};
+$SYSTEMPERL      = $ENV{SYSTEMPERL};
+$VERILATOR_ROOT  = $ENV{VERILATOR_ROOT};
+
+
+$TOP            = "Vtop";
+
+$USER           = `whoami`;
+chomp($USER);
+$PROJECT        = "atdsp16_t0";
+$ROOT           = "/home/$USER/Adapteva/$PROJECT/src";
+
+
+#Use newest compiler(need to fix this...)
+#Alternative path for GCC
+if(defined $opt_gcca){
+  $GCC             = "/home/aolofsson/Software/install/gcc-4.3.3/bin/g++ -g";
+}
+else{
+  $GCC            = "g++ -g";
+}
+$PWD            = `pwd`;
+chomp($PWD);
+
+##################################################################
+#User Variables
+$TOPFILE   = $opt_t;
+
+if(defined $opt_f){
+  $CMDFILE   = $opt_f;
+}
+else{
+  $CMDFILE   = "$ROOT/rtl/libs.vc";
+}
+if(defined $opt_dv){
+  $DVDIR          = $opt_dv;
+}
+else{
+  $DVDIR          = "$ROOT/dv/include/";
+}
+if(defined $opt_m){
+  $MAIN      = $opt_m;
+}
+else{
+  $MAIN      = "$DVDIR/sc_main.cpp";
+}
+
+if(defined $opt_s){
+  $STIMULUS      = $opt_s;
+}
+else{
+  $STIMULUS  = "$DVDIR/stimulus.cpp";
+  $MONITOR   = "$DVDIR/monitor.cpp";
+}
+
+if(defined $opt_vcd){
+  $TRACEARG   ="--sp --trace ";
+  #$TRACEARG   ="--sp --trace --trace-depth 1";
+  $TRACEFILES ="${TOP}__Trace.cpp ${TOP}__Trace__Slow.cpp";
+  $DUMPVCD=1;
+}
+else{
+  $TRACEARG   ="";
+  $TRACEFILES ="";
+  $DUMPVCD=0;
+}
+if(defined $opt_trace){
+  $DUMPTRACE=1;
+}
+else{
+  $DUMPTRACE=0;
+}
+if(defined $opt_vargs){
+  #Command Delimetered list in quotes
+  @List=split(",",$opt_vargs);
+  foreach $arg (@List){
+    $arg=~ s/\s//g;
+    $VARGS=$VARGS." -D$arg";
+  }
+}
+else{
+  $VARGS="";
+}
+
+if(defined $opt_cc){
+  $GCCARGS  = $opt_cc;
+}
+else{
+  $GCCARGS  = "-g -I. -I$PWD -I$DVDIR -I$VERILATOR_ROOT/include -I$SYSTEMC/include -I$SYSTEMPERL/src -MMD  $VARGS -DVL_PRINTF=printf -DVM_TRACE=1  -DSYSTEMPERL -DUTIL_PRINTF=sp_log_printf -Wno-deprecated";
+}
+
+if(defined $opt_o){
+  $SIMULATOR  = "asim-$opt_o";
+}
+else{
+  $SIMULATOR  = "asim";
+}
+
+if(defined $opt_d){
+  $DEBUG=1;
+}
+else{
+  $DEBUG=0;
+}
+
+##################################################################
+#PRINTING VARIABLES
+print "-----------------------------------------------------------------\n";
+print "MAINCPP =$MAIN\n";
+print "STIMULUS=$STIMULUS\n";
+print "MONITOR =$MONITOR\n";
+print "TOP     =$TOPFILE\n";
+print "CMDFILE =$CMDFILE\n";
+print "DVDIR   =$DVDIR\n";
+print "GCCARGS =$GCCARGS\n";
+##################################################################
+
+##################################################################
+#Creating run specificn
+if(! -e "obj_dir"){
+  `mkdir obj_dir`;
+}
+if(! defined $opt_conly){
+
+  
+  ##################################################################
+  #Creating dump trace
+  `echo "#define DUMPVCD   $DUMPVCD"   > obj_dir/simcfg.h`;
+  `echo "#define DUMPTRACE $DUMPTRACE" >> obj_dir/simcfg.h`;
+  `echo "#define DEBUG     $DEBUG"     >> obj_dir/simcfg.h`;
+
+  ##################################################################
+  #VERILATOR
+  print "-----------------------------------------------------------------\n";
+  print "RUNNING VERILATOR...\n";
+
+#run_cmd($DEBUG,"$VERILATOR_ROOT/bin/verilator  --sp --prefix $TOP -Wno-WIDTH --stats -O3  --noassert $TRACEARG -y $RTLDIR -y $DVDIR +librescan +libext+.v +incdir+$RTLDIR +incdir+$VERILATOR_ROOT/include $TOPFILE");
+run_cmd($DEBUG,"$VERILATOR_ROOT/bin/verilator  --sp --x-assign 1 --prefix $TOP  -Wno-WIDTH --top-module top --stats -O3 --noassert $VARGS $TRACEARG -f $CMDFILE +incdir+$VERILATOR_ROOT/include  $TOPFILE");
+  ##################################################################
+  #MOVING TO OBJ_DIR
+  chdir("obj_dir");
+  ##################################################################
+  #PRE-PROCESSING
+  print "-----------------------------------------------------------------\n";
+  print "RUNNING SYSTEMPERL PREPROCESSOR...\n";
+  run_cmd($DEBUG,"sp_preproc -M sp_preproc.d --tree ${TOP}.sp_tree --preproc ${TOP}.sp");
+  ##################################################################
+  #RESOLVING INCLUDE FILES(why do we need this??)
+  print "-----------------------------------------------------------------\n";
+  print "RESOLVING INCLUDE FILES...\n";
+  run_cmd($DEBUG,"$VERILATOR_ROOT/bin/verilator_includer ${TOP}.cpp > ${TOP}__ALLcls.cpp");
+  run_cmd($DEBUG,"$VERILATOR_ROOT/bin/verilator_includer $TRACEFILES ${TOP}__Syms.cpp  > ${TOP}__ALLsup.cpp");
+
+
+##################################################################
+#COMPILING VERILATOR FILES.(FIX!!)
+#FIX: How to include header files in make structure
+#should be a automatically called(recursively if needed)
+
+open(FILEOUT,">makefile");
+print FILEOUT "\n#ARGUMENTS\n";
+print FILEOUT "GCCARGS = $GCCARGS\n";
+
+print FILEOUT "\n#LINKING\n";
+print FILEOUT "$SIMULATOR: sc_main.o stimulus.o monitor.o Sp.o verilated.o ${TOP}__ALL.a $SYSTEMC_KIT/lib-linux/libsystemc.a\n";
+print FILEOUT "\t$GCC    -L$SYSTEMC/lib-linux  -g sc_main.o monitor.o stimulus.o Sp.o verilated.o ${TOP}__ALL.a $SYSTEMC/lib-linux/libsystemc.a   -o $SIMULATOR -lsystemc -lm -lstdc++ | c++filt\n";
+
+print FILEOUT "\n#MAIN\n";
+print FILEOUT "sc_main.o: simcfg.h $MAIN\n";#Missing headers!!!
+print FILEOUT "\t$GCC  \$(GCCARGS)  -include simcfg.h  -c -o sc_main.o $MAIN\n";
+
+print FILEOUT "\n#STIMULUS\n";
+print FILEOUT "stimulus.o:simcfg.h $STIMULUS\n";#Missing headers!!!!
+print FILEOUT "\t$GCC  \$(GCCARGS)  -include simcfg.h  -c -o stimulus.o $STIMULUS\n";
+
+print FILEOUT "\n#MONITOR\n";
+print FILEOUT "monitor.o:simcfg.h $MONITOR\n";#Missing headers!!!!
+print FILEOUT "\t$GCC  \$(GCCARGS)  -include simcfg.h  -c -o monitor.o $MONITOR\n";
+
+print FILEOUT "\n#SYSTEM PERL\n";
+print FILEOUT "Sp.o: $SYSTEMPERL/src/Sp.cpp\n";
+print FILEOUT "\t$GCC  \$(GCCARGS)   -c -o Sp.o $SYSTEMPERL/src/Sp.cpp\n";
+
+print FILEOUT "\n#COMPILING VERILATOR STUB\n";
+print FILEOUT "verilated.o: $VERILATOR_ROOT/include/verilated.cpp\n";
+print FILEOUT "\t$GCC  \$(GCCARGS) -c -o verilated.o $VERILATOR_ROOT/include/verilated.cpp\n";
+
+#Always Compile These
+print FILEOUT "\n#COMPILING DESIGN FILES\n";
+print FILEOUT "${TOP}__ALLcls.o: ${TOP}__ALLcls.cpp\n";
+print FILEOUT "\t$GCC  \$(GCCARGS) -c -o ${TOP}__ALLcls.o ${TOP}__ALLcls.cpp\n";
+print FILEOUT "${TOP}__ALLsup.o: ${TOP}__ALLsup.cpp\n";
+print FILEOUT "\t$GCC  \$(GCCARGS) -c -o ${TOP}__ALLsup.o ${TOP}__ALLsup.cpp\n";
+
+#Collecting Other Files Generated by Verilator-->HACK!!!
+@List=`ls *.cpp`;#Better way of getting list of files??
+chomp(@List);
+foreach $File (@List){
+  $Module=$File;
+  $Module=~ s/(\w+)\.cpp.*/$1/;
+  #How to match this better??
+  if(!($Module=~ /(Vtop__Syms|Vtop__Trace|Vtop__Trace__Slow|Vtop|Vtop__ALLsup|Vtop__ALLcls)$/)){
+    print FILEOUT "$Module.o: $Module.cpp\n";
+    print FILEOUT "\t$GCC  \$(GCCARGS) -c -o $Module.o $Module.cpp\n";
+    $HierObjects=$HierObjects." $Module.o";
+  }
+}
+
+print FILEOUT "\n#ARCHIVING VERILATOR\n";
+print FILEOUT "Vtop__ALL.a:	Vtop__ALLsup.o Vtop__ALLcls.o $HierObjects\n";
+print FILEOUT "\tar r Vtop__ALL.a Vtop__ALLcls.o Vtop__ALLsup.o $HierObjects\n";
+print FILEOUT "\tranlib Vtop__ALL.a\n";
+
+close(FILEOUT);
+
+}
+else{
+  #HOULD WE COPY DIRECTORY??
+  #MOVING TO OBJ_DIR
+  chdir("obj_dir");
+}
+
+#RUNNING MAKE
+system("make");
+
+##################################################################
+sub run_cmd {
+  my $DEBUG = $_[0];
+  my $CMD   = $_[1];
+  if($DEBUG){
+    print "$CMD\n";
+  }
+  $ERROR=system("$CMD");
+  if($ERROR>0){
+    print "FATAL ERROR, EXITING BUILD!\n";
+    exit;
+  }
+}
+##################################################################
+
+
+
+
+
+
+
+
