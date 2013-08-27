@@ -1,0 +1,8 @@
+How to build the env?
+dv_run.sh -tag <mytag> -build  -c 4
+
+How to run dv system?
+dv_run.sh -tag <mytag> -run -c 1 -no_inter -mc_off  -n 10 #-wave
+
+
+
