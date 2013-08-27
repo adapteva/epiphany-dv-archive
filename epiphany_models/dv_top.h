@@ -1,6 +1,7 @@
 /*
 Copyright (C) 2011 Adapteva, Inc.
-Contributed by Oleg Raikhman <support@adapteva.com>
+Contributed by Andreas Olofsson <andreas@adapteva.com>
+Modified by Oleg Raikhman <support@adapteva.com>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

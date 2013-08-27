@@ -7,3 +7,5 @@ dv_run.sh -tag <mytag> -run -c 1 -no_inter -mc_off  -n 10 #-wave
 How to compile files:
 Enter Debug/ directory of each sub project and 'make'
 
+Pre-requisites:
+Verilator package, see www.veripool.org
