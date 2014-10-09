@@ -1,0 +1,241 @@
+#!/usr/bin/perl
+#use strict
+use Getopt::Long;
+use File::Spec;
+my $Usage =<<EOF;
+#####################################################################
+#Function  : Adapteva Hardware Emulator Run Script
+#Author    : Andreas Olofsson
+#License   : BSD 3-Clause License (a copy at bottom of file)
+#####################################################################
+#Usage     : asim   -m      <ModelPath>
+#                   -elf    <ElfFiles>
+#                   [-dat   <DataFile>]
+#                   [-t     <Time>]
+#                   [-xoff  <ChipOffset>]
+#                   [-h     <PrintHelp>]
+#-------------------------------------------------------------------------
+#Examples  : asim   -m "/home/user/libdir" -elf "fft.elf 0_0" \\
+#                   -elf "ifft.elf 0_1" -dat "frame.dat"
+##########################################################################
+EOF
+
+#Defining options to parse
+my $result =  GetOptions('m:s','elf:s@','dat:s',
+			 'dump:s','t:s', 'trace:s',
+			 'd:s', 'del:s','cclk:s','xoff:s',
+			 'lclk:s','vcd:s','i:s','go:s',
+			 'ndat:s','sdat:s','wdat:s',
+			 'edat:s','spidat:s','h:s');
+
+if(defined $opt_h){
+print "$Usage";
+print "#Options   :
+#
+#-elf      : Specifies the elf files to load in which cores to load into.
+#            If you specify an elf file to be loaded to a specific core, you
+#            must place the compete argument within double quotes, as shown:
+#            If no core is specified, it is loaded to core 0_0 by default.
+#            Relocation is handled by the program loader and is based on the core
+#            number argument.  The core specifier is given in a row-column format.
+#            For example a core specifier of 0_1 means the core in row 0 and column 1.
+#            Any address greater than 0x7FFF does not get a core based offset and 
+#            is translated as-is from the elf file.
+#
+#            More than one file can be loaded, using multiple -elf switches
+#            -elf \"fft1.elf    1_1\" -elf \"fft2.elf    1_2\"
+#
+#-m        : Path to library containing compiled model file.  The simulator
+#            will look for a library file named \"libepiphanymodel.so\"
+#            in that directory.
+#            Ex:  /home/user/libdir/
+#
+#-dat      : Path to data file to load.  The data file is loaded after
+#            the program is loaded, but before the ILAT is written to start
+#            the program.
+#
+#            The format of the data file is:
+#            <srcadr> <data>   <dstadr> <type>
+#            00000000_1002000b_82000094_0_9
+#            00000000_1002000b_82000098_0_9
+#            ...
+#
+#-t        : Number of clock cycles to simulate.
+#
+#-xoff     : Chip address offset to add to each internal address in elf files.
+#            An internal address has a value less than 0x7FFF.  These
+#            addresses are duplicated in every core and needs to have
+#            have a core's offset to be properly loaded.
+#            The default is 0x82000000
+#
+##########################################################################
+";
+exit;
+}
+elsif(!(defined @opt_elf) | !defined $opt_m){
+  print "$Usage";		
+  exit;
+}	
+
+if(defined $opt_d){
+  $DEBUG=1;
+}
+else{
+  $DEBUG=0;
+}
+
+#############################################################
+#Mandatory Variables
+$ILAT     =0x000f0428;#ILAT-ADDRESS
+$UREGS    =0x000f0000;#GP-REGS
+#############################################################
+#ADDRESS OFFSET TABLE
+#############################################################
+#Table of addresses for different cores
+#"row-column"
+if(defined $opt_xoff){
+  $EXTOFF      =$opt_xoff;
+}
+else{
+  $EXTOFF      =0x82000000;#external offset of 4,4
+}
+$Addr{"0_0"} =0x00000000;#ROW 0
+$Addr{"0_1"} =0x00100000;
+$Addr{"0_2"} =0x00200000;
+$Addr{"0_3"} =0x00300000;
+
+$Addr{"1_0"} =0x04000000;#ROW 1
+$Addr{"1_1"} =0x04100000;
+$Addr{"1_2"} =0x04200000;
+$Addr{"1_3"} =0x04300000;
+
+$Addr{"2_0"} =0x08000000;#ROW 2
+$Addr{"2_1"} =0x08100000;
+$Addr{"2_2"} =0x08200000;
+$Addr{"2_3"} =0x08300000;
+
+$Addr{"3_0"} =0x0C000000;#ROW 3
+$Addr{"3_1"} =0x0C100000;
+$Addr{"3_2"} =0x0C200000;
+$Addr{"3_3"} =0x0C300000;
+
+
+
+
+
+#############################################################
+#PROCESSING THE ELF ARGUMENTS
+#############################################################
+$i=0;
+foreach $Pair (@opt_elf){
+  @List=split(' ',$Pair);
+  $ELFMAP[$i][0]=File::Spec->rel2abs(@List[0]);#file
+  $ELFMAP[$i][1]=@List[1];#core
+  if($ELFMAP[$i][1] eq ""){
+    $ELFMAP[$i][1]="0_0";
+  }
+  $i++;
+}
+#############################################################
+#CONVERTING ELF FILES TO MEMH
+#############################################################
+if(-e "boot_image.memh"){
+  system("rm boot_image.memh");
+}
+
+foreach $i (0..$#ELFMAP){
+  $OFFSET=$Addr{$ELFMAP[$i][1]}+$EXTOFF;
+  run_cmd($DEBUG,"elf2emesh -elf $ELFMAP[$i][0] -off $OFFSET -o /tmp/tmp.memh");
+  system("cat /tmp/tmp.memh >> boot_image.memh");
+}
+
+#############################################################
+#ADDING DATA FILE
+#############################################################
+if(defined $opt_dat){
+  system("cat $opt_dat >> boot_image.memh");
+}
+
+#############################################################
+#ZERO OUT REGISTER FILE
+#############################################################
+#REGFILE(ZEROING)
+foreach $i (0..$#ELFMAP){
+  $OFFSET=$Addr{$ELFMAP[$i][1]}+$EXTOFF;
+  for($i=0;$i<64;$i++){
+    $ADDR=sprintf("%.8x",$UREGS+$OFFSET+4*$i); 
+    system("echo 00000000_00000000_${ADDR}_0_9 >> boot_image.memh");
+  }
+}
+#############################################################
+#ADDING KICK START SIGNALS FOR EVERY CORE USED
+#############################################################
+foreach $i (0..$#ELFMAP){
+  $OFFSET=$Addr{$ELFMAP[$i][1]}+$EXTOFF;
+  $ADDR =sprintf("%.8x",$ILAT+$OFFSET);
+  system("echo 00000000_00000001_${ADDR}_0_9 >> boot_image.memh");
+}
+#############################################################
+#STARTING MULTICORE SIMULATOR
+#############################################################
+
+#Setting LD LIBRARY PATH
+$MODELPATH=File::Spec->rel2abs($opt_m);#getting relative path of file
+`setenv LD_LIBRARY_PATH $MODELPATH`;
+
+if(defined $opt_vcd){
+  $WAVE="-vcdlevel 99";
+}
+
+run_cmd($DEBUG,"e-vmodel-run -northfile boot_image.memh -ptrace 1 $WAVE");
+
+#############################################################
+#POST PROCESSING TRACE FILE
+#############################################################
+foreach $i (0..$#ELFMAP){
+  run_cmd($DEBUG,"maptrace -t core_$ELFMAP[$i][1].ptrace -elf $ELFMAP[$i][0] -o core_$ELFMAP[$i][1].ptrace.map");
+}
+##################################################################
+sub run_cmd {
+  my $DEBUG = $_[0];
+  my $CMD   = $_[1];
+  if($DEBUG){
+    print "MSG>>$CMD\n";
+  }
+  $ERROR=system("$CMD");
+  if($ERROR>0){
+    print "ERROR>>VERILATOR COMPILATION FAILED!\n";
+    exit;
+  }
+}
+##################################################################
+#Copyright (c) 2010, Andreas Olofsson, Adapteva, Inc
+#All rights reserved.
+#
+#Redistribution and use in source and binary forms, with or without modification,
+#are permitted provided that the following conditions are met:
+#
+#Redistributions of source code must retain the above copyright notice, this
+#list of conditions and the following disclaimer.
+
+#Redistributions in binary form must reproduce the above copyright notice, this
+#list of conditions and the following disclaimer in the documentation and/or
+#other materials provided with the distribution.
+
+#Neither the name of the copyright holders nor the names of its
+#contributors may be used to endorse or promote products derived from
+#this software without specific prior written permission.
+#
+#THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+#ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+#WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+#DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+#ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+#(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+#LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+#ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+#(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+#SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+########################################################################
+

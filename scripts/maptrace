@@ -1,0 +1,260 @@
+#!/usr/bin/perl
+#use strict
+use Getopt::Long;
+use File::Spec;
+my $Usage =<<EOF;
+#####################################################################
+#Function  : Post-processing utility for simulator dump file
+#Author    : Andreas Olofsson
+#License   : BSD 3-Clause License (a copy at bottom of file)
+#####################################################################
+#
+#Usage     : maptrace  -t      <EmulatorTraceFile>
+#                      -elf    <ElfFile>
+#                      -o      <OutputFile>
+#                      [-h      <DetailedHelp>]
+#
+#####################################################################
+#Examples  : maptrace -t "core_1_1.ptrace" -elf "fft.elf" \\
+#                     -o "core_1_1.ptrace.map"
+#####################################################################
+EOF
+#Defining options to parse
+my $result =  GetOptions('elf:s','t:s','o:s','dv:s','h');
+if(defined $opt_h){
+ print "$Usage";
+ print "#
+#Options   :
+#-t        : Raw simulator Trace File
+#
+#-elf      : Path to elf file used to run test
+#
+#-o        : Post processed output file
+#
+#####################################################################
+"
+}
+elsif((!defined $opt_t) | (!defined $opt_elf) | (!defined $opt_o)){
+  print "$Usage";
+  exit;
+}
+
+#####################################################################
+#DUMPING ASCII FROM ELF
+#####################################################################
+$ELF =File::Spec->rel2abs($opt_elf);#getting relative path of file
+$ROOT =$ELF;
+chomp($ROOT);
+$ROOT=~ s/\/.*\/(.*)$/$1/;
+#print "ROOT=$ROOT\n";
+system("e-objdump -D -a -t $ELF \> $ROOT.objdump");
+
+
+#####################################################################
+#PARSING ELF DUMP FILE
+#####################################################################
+open(FILE,"$ROOT.objdump");
+while(<FILE>){
+  if(/Disassembly of section\s+\.*(\w+)\:/){
+    $Type=$1;
+  }
+  elsif($Type=~ /(output|text|data|bss|init|rodata|dtors|ctors|fini|CORE_RAM_0|CORE_RAM_1|CORE_RAM_2|CORE_RAM_3)/){
+    #print $_;
+    if(/^([0-9a-f]+)\s+\<(.+)\>\:/){
+      $Addr   =sprintf("%d",hex($1));
+      $Label=$2;
+      #print "LABELS $Addr $Label\n";
+    }
+    elsif(/\s*([0-9a-f]+)\:/){
+      s/\://g;#remove : character
+      @Line=split('\t', $_);#file is tab delimetered
+      $Line[0]=~ s/\s//g;    #removing spaces in first argument
+      $Addr   =sprintf("%d",hex($Line[0]));#Converting address to decimal
+      @Bytes=split('\s', $Line[1]);#splitting bytes based on space
+      $Comment=$Line[2];
+      chomp($Comment);#Removing newline character
+      if($#Bytes<1){#16 bit
+	$Code=$Bytes[0];
+      }
+      else{
+	$Code=$Bytes[1].$Bytes[0];
+      }
+      $PROGRAM{$Addr}        =substr($Comment,0,25);#PC based
+      $DISSASSEMBLY{$Code}   =substr($Comment,0,25);#opcode based
+      if(defined $opt_dv){
+	$FUNCTION{$Addr}="";
+      }
+      else{
+	$FUNCTION{$Addr}       =$Label;
+      }
+    }
+  }
+}
+close(FILE);
+
+
+#####################################################################
+#MAPPING TRACE FILE
+#####################################################################
+$DISSASSEMBLY{"----"}="--------";
+#Writing out Program with binary opcode replaced by assembly
+$OldTime=1e9;
+
+#for debug purposes
+open(FILE,"$opt_t");
+open(FILEOUT,">$opt_o");
+while(<FILE>){
+  $ERROR ="";
+  $IRES  ="";
+  $FRES  ="";
+  if(/ISR\-IGNORE/){
+    $ISR="ISR-IGNORE";
+  }
+  else{
+    $ISR="";
+  }
+
+  #Getting Arguments
+  @List       =split(' ',$_);
+  $Name       =$List[1];
+  $Time       =$List[2];
+  $HPC        =$List[3];
+  $Int        =$List[4];
+  $Float      =$List[5];
+  $ResList[0] =$List[6];
+  $ResList[1] =$List[7];
+  $ResList[2] =$List[8];
+  
+  #Removing junk
+  $Time      =~ s/T\=//;
+  $Int       =~ s/I\=//;
+  $Float     =~ s/F\=//;
+  $HPC       =~ s/^PC\=//;
+  $PC        =sprintf("%d",hex($HPC));
+  #print "CHECK $Name $Time $PC $Int $Float @ResList\n";
+
+  #Checking for dual issue instructions
+  if($Int=~ /--------/ | $Float=~ /--------/){
+    $Dual=0;
+  }
+  else{
+    $Dual=1;
+  }
+  #Getting results(integer+float)
+  foreach $Res (@ResList){
+    if($Res=~ /fr\d+\=/){
+      $FRES=$FRES.",$Res";
+    }
+    else{
+      $IRES=$IRES.",$Res";
+    }
+  }
+
+  #Checking Size of opcodes and fixing them in case of 16 bit ops
+  ($IntOp,$IntSize)     = &check_opcode($Int);
+  ($FloatOp,$FloatSize) = &check_opcode($Float);
+
+  $INSTR=$PROGRAM{$PC};
+  
+  #Figuring out if first instruction is a float or not
+  if($DISSASSEMBLY{$FloatOp} eq $INSTR){
+    $Size   =$FloatSize;
+    $RES    =$FRES.$ISR;
+    $RES2   =$IRES.$ISR;
+  }
+  else{
+    $Size   =$IntSize;
+    $RES    =$IRES.$ISR;
+    $RES2   =$FRES.$ISR;
+  }
+  #Calculating 2nd PC
+  if($Size == "16"){
+    $PC2=$PC+0x2;
+  }
+  else{
+    $PC2=$PC+0x4;
+  }
+
+  #Calculating stalls
+  $Stalls=$Time-$OldTime-1;
+  if($Stalls<=0){#treating first line in code
+    $Stalls="";
+  }
+  else{
+    $Stalls="S=$Stalls";
+  }
+  $OldTime=$Time;
+
+  if($INSTR eq ""){
+    $INSTR="<ERROR:INVALID OPCODE>";
+  }
+
+  printf(FILEOUT "T=%-8s,%-20s,%-6s,  PC=%08x,  %-25s,%-20s\n",$Time,  #TIME
+                                                         $FUNCTION{$PC},#FUNC
+                                                         $Stalls,#STALL CYCLES
+	                                                 $PC,    #PC-HEX
+	                                                 $INSTR, #Assembly
+	                                                 $RES);
+
+  if($Dual){
+    $INSTR2=$PROGRAM{$PC2};
+    if($INSTR2 eq ""){
+      $INSTR2="<ERROR:INVALID OPCODE>";
+    }
+    printf(FILEOUT "T=%-8s,%-20s,DUAL  ,  PC=%08x,  %-25s,%-20s\n",$Time,  #TIME
+                                                                   $FUNCTION{$PC},#FUNC
+	                                                           $PC2,   #PC-HEX
+	                                                           $INSTR2,#Assembly
+	                                                           $RES2);
+  }
+}
+
+close(FILE);
+close(FILEOUT);
+############################################################################
+sub check_opcode{
+  my $input = $_[0];
+  my $size;
+  $char=substr($input,7,1);
+  if(!($char=~ /[8,9,b,c,d,f]/)){#these are the characters defining a 32 bit instruction!!
+    $opcode=substr($input,4,4);#ignore upper 16 bits for short instruction
+    $size=16;
+  }
+  else{
+    $opcode=$input;
+    $size=32;
+  }
+  #print "c=$char i=$input o=$opcode\n";
+  return ($opcode,$size);
+}
+##################################################################
+#
+#Copyright (c) 2010, Andreas Olofsson
+#All rights reserved.
+#
+#Redistribution and use in source and binary forms, with or without modification,
+#are permitted provided that the following conditions are met:
+#
+#Redistributions of source code must retain the above copyright notice, this
+#list of conditions and the following disclaimer.
+
+#Redistributions in binary form must reproduce the above copyright notice, this
+#list of conditions and the following disclaimer in the documentation and/or
+#other materials provided with the distribution.
+
+#Neither the name of the copyright holders nor the names of its
+#contributors may be used to endorse or promote products derived from
+#this software without specific prior written permission.
+#
+#THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+#ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+#WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+#DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+#ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+#(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+#LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+#ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+#(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+#SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+########################################################################

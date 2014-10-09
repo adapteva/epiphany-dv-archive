@@ -1,6 +1,48 @@
-#!/bin/csh
+#! /usr/bin/perl
+require "/home/aolofsson/Bin/GeneralSubroutines.pl";
+use Getopt::Long;
+$Usage =<<EOF;
+##########################################################################
+#Function  : Silly script for splitting modules in one file into many
+#Author    : Andreas Olofsson
+#License   : BSD 3-Clause License (see bottom of source file)
+##########################################################################
+Usage: SplitVerilogFiles.pl   -v     <Verilog>
+ 	                      -dir   <Directory
+###########################################################################
+EOF
+$result = GetOptions( 'v:s', 'dir:s');
+
+if ((!defined $opt_v) | (!(defined $opt_dir))){
+  printf $Usage;
+  exit;
+}
+$VerilogFile=$opt_v;
+$Dir=$opt_dir;
+&split_verilog_files($VerilogFile,"$Dir");
+sub split_verilog_files {
+    my $File      =$_[0];
+    my $Directory =$_[1];  
+    open(FILE,$File);
+    while(<FILE>){
+	if(/^\s*module\s*(\w+)/){
+	    $Module=$1;
+	    open(FILEOUT,">$Directory/$Module.v");
+	    print FILEOUT $_;
+	}
+	elsif(/endmodule/){
+	    print FILEOUT $_;
+	    close(FILEOUT);	    
+	}
+	else{
+	    print FILEOUT $_;
+	}
+    }
+close(FILE);
+}
 ##################################################################
-#Copyright (c) 2010, Oleg Raikhman, Adapteva, Inc
+#
+#Copyright (c) 2009, Andreas Olofsson, Adapteva, Inc.
 #All rights reserved.
 #
 #Redistribution and use in source and binary forms, with or without modification,
@@ -31,47 +73,7 @@
 ########################################################################
 
 
-cat >! runme.sh  << END
-#!/bin/csh
-set path = ( ~/maxwell_tools_build/linux/bin/ $path )
-END
 
 
-set tag = $argv[1]
-
-set  ntapeout_tests =  $argv[2]
-
-set t = 0
-set dv_args = ( "-bkpt_on-internal_only" "-integer_on" "-no_inter-no_dma"  "-random_stop_resume_on"  "-bkpt_on"  )
-#set dv_args = ( "-mc_off" "-integer_on" "-no_inter-no_dma"  "-internal_only" "-hw_loop_on" )
-foreach dv_run_a ( ${dv_args}  )
-	set p_args = `echo $dv_run_a | sed -e 's/-/ -/g'`
-	echo "${p_args}"
-	set rdir = rundir_${t} 
-	mkdir -p $rdir 
-	cd $rdir 
-	cp ../runme.sh runme.sh
-	echo "cd $cwd" >> runme.sh
-	echo "/home/$user/$tag/epiphany-dv-run/dv_run.sh -tag $tag -timeout 8000000 -run -c 1 -mc_off -n ${ntapeout_tests}  $p_args" >> runme.sh
-	chmod a+x runme.sh
-	
-	cd ..
-	@ t = ${t} + 1
-end
-
-
-set t = 0
-set gnome_args = ""
-
-foreach dv_run_a ( ${dv_args}  )
-	set rdir = rundir_${t} 
-	set gnome_args = "${gnome_args} --tab -t $rdir -e '${cwd}/${rdir}/runme.sh' "
-	@ t = ${t} + 1
-end
-echo "gnome-terminal ${gnome_args}"
-
-gnome-terminal --maximize ${gnome_args}
-
-exit
 
 

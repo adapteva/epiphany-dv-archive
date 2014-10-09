@@ -1,0 +1,260 @@
+#!/usr/bin/perl
+#use strict
+use Getopt::Long;
+use File::Spec;
+my $Usage =<<EOF;
+##########################################################################
+#Function  : Glorified for-loop for running lots of tests
+#Author    : Andreas Olofssona
+#License   : BSD 3-Clause License (see bottom of source file)
+##########################################################################
+#USAGE:      nighrun -n        <number of tests to run>
+#                    -vcd      <turns on wave dump (SLOW!!)>
+#                    -elf      <list of elf files and cores to load to>
+#                    -mc       <number of cores to run, default is 1>
+#                    -m        <hw model path>
+#                    -a        <args to pass Oleg's env>
+#                    -k        <keep passing tests>
+#                    -c        <compare-only>
+#
+##########################################################################
+EOF
+my $result =  GetOptions('elf:s@','n:s','vcd:s','no_fp:s','m:s','mc:s','no_hw:s','a:s','h:s','c:s','k:s','no_inter:s','noi:s','rerun:s');
+
+if(defined $opt_h){
+  print "$Usage";
+  print "#
+#-n        : Number of random tests to generate
+#
+#-elf      : Specifies the elf file to load and the core to load it to.
+#            If you specify an elf file to be loaded to a specific core, you
+#            must place the compete argument within double quotes, as shown:
+#            If no core is specified, it is loaded to core 1_1.
+#            The elf file should be loaded into the internal core memory space.
+#            Relocation is handled by the program loader and is based on the core
+#            number argument.
+#            More than one file can be loaded, using multiple -elf switches
+#            -elf \"fft1.elf    1_1\" -elf \"fft2.elf    1_2\"
+#
+#
+#
+#
+##########################################################################
+"
+}
+elsif(!defined $opt_n & !defined @opt_elf){
+  print "$Usage";
+  exit;
+}
+
+##########################################
+#DEFAULTS
+##########################################
+$DEBUG  =1;
+$VCD    ="";
+$TAG    ="/soft/devtools-latest/linux26_x86_64/bin/";
+#$TAG    ="/home/oraikhman/25-Mar-2010";
+#$TAG    ="/home/oraikhman/17-Mar-2010";
+#$TAG    ="/home/oraikhman/workspace-4";
+#REALLY OLD TAGS
+#$IGEN   ="/home/oraikhman/ATDSP_GEN/runGen.csh";
+#$IGEN   ="/home/oraikhman/26-FEB-DV1/igen/run/runGen.csh";
+#$IGEN   ="/home/oraikhman/2-MAR-DV1/igen/run/runGen.csh";
+#$IGEN   ="/home/oraikhman/8-MAR-DV1/igen/run/runGen.csh";
+#$IGEN   ="/home/oraikhman/17-Mar-2010/igen/run/runGen.csh";
+
+$SIM    ="$TAG/atdsp-unknown-elf-run";
+$IGEN   ="$TAG/igen/run/runGen.csh";
+
+
+$TIMEOUT=150000;
+$INTONLY="";#-internal_only
+$CMDFILE="test_rerun.csh";
+#$IGENOPT="-chip_ext_off -no_dma -no_fp -no_inter";
+#$IGENOPT="-chip_ext_off -no_dma";
+$IGENOPT="-chip_ext_off";
+if(defined $opt_a){
+  $IGENOPT=$IGENOPT." $opt_a";
+}
+
+if(-e "$CMDFILE"){
+  system("rm $CMDFILE");
+}
+#system("limit stacksize 20000");#FIX LATER!!!, problem with array
+##########################################
+#OPTIONS
+##########################################
+$i=0;
+if(defined @opt_elf){
+  foreach $Pair (@opt_elf){
+    @List=split(' ',$Pair);
+    $ELFMAP[$i][0]=File::Spec->rel2abs(@List[0]);#file
+    $ELFMAP[$i][1]=@List[1];#core
+    if($ELFMAP[$i][1] eq ""){
+      $ELFMAP[$i][1]="0_0";
+    }
+    $i++;
+  }
+  for ($i=0;$i<=$#ELFMAP;$i++){
+    $ELFARG=$ELFARG."-elf \"$ELFMAP[$i][0] $ELFMAP[$i][1]\"";
+  }
+  @List[0]=0;
+  $N=1;
+}
+else{
+  $N=$opt_n;
+}
+if(defined $opt_vcd){
+  $VCD="-vcd";
+  $VCDOPT="-wave";
+}
+if(defined $opt_mc){
+  $CORES =$opt_mc;
+  $ICORES=$opt_mc;
+  if(defined $opt_m){
+    $MODEL=File::Spec->rel2abs($opt_m);#getting relative path of file
+  }
+  else{
+    $MODEL ="/home/aolofsson/Adapteva/maxwell/work/dv/max16";
+  }
+}
+else{
+  $CORES ="2";
+  $ICORES="2";
+  if(defined $opt_m){
+    $MODEL=File::Spec->rel2abs($opt_m);#getting relative path of file
+  }
+  else{
+    $MODEL ="/home/aolofsson/Adapteva/maxwell/work/dv/max1";
+  }
+}
+
+##########################################
+#LOOP
+##########################################
+for($i=0;$i<$N;$i++){
+  $Test="test$i";
+  #0. CREATE DIRECTORY
+  if(!defined $opt_rerun){
+    system("mkdir $Test");
+  }
+  if(-e "$Test"){
+    chdir("$Test");
+    print STDERR "MSG>>RUNNING TEST $Test\n";
+    if(!defined $opt_c){
+      ###########################################
+      #COPY TESTS OVER ON ELF TEST, OTHEWISE RUN
+      ###########################################
+      if(defined @opt_elf){
+	#1. Copy tests over to infrastructure
+	for ($i=0;$i<$CORES;$i++){
+	  system("mkdir core_$i");
+	  chdir("core_$i");
+	  system("cp $ELFMAP[$i][0] test.elf");
+	  if(! defined $opt_noi){
+	    system("$SIM --trace=on test.elf \>\& sim.log");
+	  }
+	  chdir("../");
+	}
+	$PROGRAM=$ELFARG;
+      }
+      ###########################################
+      #COPY TESTS OVER ON ELF TEST
+      ###########################################
+      else{
+	if(!defined $opt_rerun){
+	  #1. RUN GENERATOR
+	  $CMD="$IGEN -n 1 -c $ICORES $IGENOPT $VCDOPT -timeout $TIMEOUT ";
+	  print "CMD>>$CMD\n";
+	  system("$CMD");
+	  #2. WRITING TO ILAT  TO KICK START
+	  for ($j=0;$j<$CORES;$j++){
+	    $Length=3;
+	    $IXB=sprintf("%0${Length}b",$j%4);
+	    $IYB=sprintf("%0${Length}b",int($j/4));
+	    $EXB="100";
+	    $EYB="100";
+	    $Length=3;
+	    $ADDR="$EYB$EXB$IYB$IXB";
+	    $COORD=sprintf("%.${Length}x",oct("0b" . $ADDR));
+	  }
+	}
+	$PROGRAM="-ndat host_load.txt";
+      }
+      ##############################################
+      #RUN EMULATOR ONCE
+      ##############################################
+      run_cmd($DEBUG,$CMDFILE,"asim -m $MODEL -t $TIMEOUT -trace $PROGRAM -r $Test -d $VCD");
+    }
+    ##############################################
+    #LOOP THROUGH ALL CORES AND COMPARE
+    ##############################################
+    $ERROR=0;
+    for ($j=0;$j<$CORES;$j++){
+      $COL=$j%4;
+      $ROW=int($j/4);
+      #4. RUN SIMULATOR FOR EACH ELF
+      #weird timing bug??
+      #print "CMD>>$SIM --trace=on core_${j}/test.elf \>\& core_${ROW}_${COL}_ideal.ptrace\n";
+      #system("$SIM --trace=on core_${j}/test.elf \>\& core_${ROW}_${COL}_ideal.ptrace");
+      #5. RUN MAPPING ON EACH CORES LOG FILE
+      if(!defined $opt_c){
+	run_cmd($DEBUG,$CMDFILE,"maptrace -elf core_${j}/test.elf -t core_${ROW}_${COL}.ptrace -o  core_${ROW}_${COL}.ptrace.map");
+      }
+      #6. COMPARE TRACE FILES
+      run_cmd($DEBUG,$CMDFILE,"comparetrace -i core_${j}/sim.log  -r core_${ROW}_${COL}.ptrace.map -o core_${ROW}_${COL}.comp");
+      #run_cmd($DEBUG,$CMDFILE,"comparegen");
+    }
+    chdir("../");
+    if(($ERROR==0) && (!defined $opt_k) && (!defined @opt_elf)){
+      system("rm -r $Test");
+    }
+  }
+}
+##################################################################
+sub run_cmd {
+  my $DEBUG   = $_[0];
+  my $CMDFILE = $_[1];
+  my $CMD     = $_[2];
+
+  if($DEBUG){
+    print "CMD>>$CMD\n";
+  }
+  $ERROR=system("$CMD")+$ERROR;
+  system("echo $CMD >> $CMDFILE");
+  if($ERROR>0){
+    print "ERROR>> $CMD EXITED WITH ERROR\n";
+    #exit;
+  }
+}
+
+##################################################################
+#Copyright (c) 2010, Andreas Olofsson, Adapteva, Inc.
+#All rights reserved.
+#
+#Redistribution and use in source and binary forms, with or without modification,
+#are permitted provided that the following conditions are met:
+#
+#Redistributions of source code must retain the above copyright notice, this
+#list of conditions and the following disclaimer.
+
+#Redistributions in binary form must reproduce the above copyright notice, this
+#list of conditions and the following disclaimer in the documentation and/or
+#other materials provided with the distribution.
+
+#Neither the name of the copyright holders nor the names of its
+#contributors may be used to endorse or promote products derived from
+#this software without specific prior written permission.
+#
+#THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+#ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+#WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+#DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+#ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+#(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+#LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+#ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+#(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+#SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+########################################################################

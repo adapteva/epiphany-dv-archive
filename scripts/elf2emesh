@@ -1,0 +1,142 @@
+#!/usr/bin/perl
+#use strict
+use Getopt::Long;
+use File::Spec;
+#####################################################################
+my $Usage =<<EOF;
+#####################################################################
+#Function  : Converts ELF File to Simulator Boot Image Format
+#Author    : Andreas Olofsson
+#License   : BSD 3-Clause License (a copy at bottom of file)
+#####################################################################
+#Usage     : elf2emesh -elf   <ElfFile>
+#                      -o     <ASCIILoadFile>
+#                      -off   <CoreOffset>
+#                      [-h    <PrintHelp>]
+#####################################################################
+#Examples  : elf2emesh -elf "fft.elf" -c "0_1" -o "boot.memh"
+#####################################################################
+EOF
+#Defining options to parse
+my $result =  GetOptions('elf:s','o:s','c:s', 'off:s', 'h:s');
+if(defined $opt_h){
+ print "$Usage";
+ print "#
+#Options   :
+#
+#-elf      : Path to elf dump file
+#
+#-o        : Easy to read ASCII load format read by simulator
+#
+#            The format of the data file is:
+#            <srcadr> <data>   <dstadr> <type>
+#            00000000_1002000b_82000094_0_9
+#
+#-off      : Memory offset to add to each internal address in elf file.
+#            This is because code and data placed in the cores internal
+#            memory(i.e 0x0-0x7FFF) needs to have the core's global 
+#            coordinate address. The default offset is 0x82000000
+#
+#########################################################################
+";
+}
+elsif((!defined $opt_elf) | (!defined $opt_o)|  (!defined $opt_off)){
+  print "$Usage";               
+  exit;
+}   
+
+
+$OFFSET=$opt_off;
+
+#####################################################################
+##CONVERTING ELF TO SREC
+#####################################################################
+$Root=File::Spec->rel2abs($opt_elf);#getting relative path of file
+$Root=~ s/.*?\/*(\w+).elf$/$1/;
+system("e-objcopy --srec-forceS3 --output-target srec $opt_elf $Root.srec");
+
+##################################################
+#PARSING SREC FILE TO CONVERT TO EMESH FORMAT
+##################################################
+open(FILE,"$Root.srec");
+open(FILEOUT,">$opt_o");
+while(<FILE>){
+  s/\s//g;
+  if(/^S3\w\w(\w{8})(\w+)\w\w$/){
+    $Addr=hex($1);
+    $Data=$2;
+    #print "$_\n";
+    #print "$Addr $Data\n";
+    @array = split(//, $Data);
+    $size = @array;
+    $cnt=0;
+    #print "s=$size a=@array\n";
+    while($cnt<$size){
+      if($Addr<1e6){
+	$DSTADDR=sprintf("%.8x",($Addr+$OFFSET));
+      }
+      else{
+	$DSTADDR=sprintf("%.8x",($Addr));
+      }
+      $SRCADDR="00000000";
+      if(($cnt+8)<$size){
+	$MODE   ="D";
+	$DATA   ="$array[$cnt+6]$array[$cnt+7]$array[$cnt+4]$array[$cnt+5]$array[$cnt+2]$array[$cnt+3]$array[$cnt]$array[$cnt+1]";
+	$SRCADDR="$array[$cnt+14]$array[$cnt+15]$array[$cnt+12]$array[$cnt+13]$array[$cnt+10]$array[$cnt+11]$array[$cnt+8]$array[$cnt+9]";
+	$Addr=$Addr+8;
+	$cnt=$cnt+16;
+      }
+      elsif(($cnt+4)<$size){
+	$MODE="9";
+	$DATA   ="$array[$cnt+6]$array[$cnt+7]$array[$cnt+4]$array[$cnt+5]$array[$cnt+2]$array[$cnt+3]$array[$cnt]$array[$cnt+1]";
+	$Addr=$Addr+4;
+	$cnt=$cnt+8;	
+      }
+      elsif(($cnt+2)<$size){
+	$MODE="5";
+	$DATA   ="0000$array[$cnt+2]$array[$cnt+3]$array[$cnt]$array[$cnt+1]";
+	$Addr=$Addr+2;
+	$cnt=$cnt+4;	
+      }
+      else{	
+	$MODE="1";
+	$DATA   ="000000$array[$cnt]$array[$cnt+1]";
+	$Addr=$Addr+1;
+	$cnt=$cnt+2;
+      }
+      print FILEOUT "${SRCADDR}_${DATA}_${DSTADDR}_0_$MODE\n";
+      #00000000_$Program{$PC}{\"code\"}$Program{$PC}{\"code\"}_${HexPC}_0_7      Program
+    }
+   
+  }
+}
+##################################################################
+#Copyright (c) 2010, Andreas Olofsson, Adapteva, Inc
+#All rights reserved.
+#
+#Redistribution and use in source and binary forms, with or without modification,
+#are permitted provided that the following conditions are met:
+#
+#Redistributions of source code must retain the above copyright notice, this
+#list of conditions and the following disclaimer.
+
+#Redistributions in binary form must reproduce the above copyright notice, this
+#list of conditions and the following disclaimer in the documentation and/or
+#other materials provided with the distribution.
+
+#Neither the name of the copyright holders nor the names of its
+#contributors may be used to endorse or promote products derived from
+#this software without specific prior written permission.
+#
+#THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+#ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+#WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+#DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+#ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+#(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+#LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+#ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+#(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+#SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+########################################################################
