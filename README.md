@@ -1,17 +1,23 @@
-Epiphany Architecture Design Verification Infrastructure
 
-docs/			Installation guide and run direction
+Epiphany Design Verification Infrastructure
+===========================================================
 
-igen/	    	   	Instruction (program) generator
+##Directory Structure
 
-mgen/	    		Memory mapped transaction generation
+Directory       | Content
+--------------- | ----------------------------
+docs			      | Installation guide and run direction
+igen            | Instruction (program) generator
+mgen            | Memory mapped transaction generation
+comparegen      | Compares test output to expected results
+epiphany_models |	Building the device under test
+scripts		      | Various DV build and run scripts
 
-comparegen/		Compares test output to expected results
+##Pre-requisites
+The infrastructure depends on SystemC and Verilator
 
-epiphany_models/	Building the device under test
+##How to Install
 
-scripts/		Various DV build and run scripts
+##How to Build
 
-
-
-  	 	     	
+##How to Run
