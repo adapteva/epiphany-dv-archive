@@ -43,7 +43,7 @@ all: igen
 igen: $(OBJS) $(USER_OBJS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: GCC C++ Linker'
-	g++-4.1 -L/usr/local/systemc/systemc-2.2/lib-linux/ -Xlinker -rpath /usr/local/systemc/systemc-2.2/lib-linux/ -o"igen" $(OBJS) $(USER_OBJS) $(LIBS)
+	g++ -L/usr/local/systemc-2.3.1/lib-linux64 -L/usr/local/scv/lib-linux64/ -Xlinker -o"igen" $(OBJS) $(USER_OBJS) $(LIBS)
 	@echo 'Finished building target: $@'
 	@echo ' '
 

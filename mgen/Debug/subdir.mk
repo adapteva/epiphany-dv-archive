@@ -17,7 +17,7 @@ CPP_DEPS += \
 main.o: ../main.cpp
 	@echo 'Building file: $<'
 	@echo 'Invoking: GCC C++ Compiler'
-	g++-4.1 -I"/home/oraikhman/dv-workspace/igen" -I"/usr/local/systemc/systemc-2.2/include" -O0 -c -fPIC -I../../igen -MMD -MP -MF"$(@:%.o=%.d)" -MT"main.d" -o"$@" "$<"
+	g++  -I"/usr/local/systemc-2.3.1/include" -I"/usr/local/scv/include" -I"../../igen" -O0 -c -fPIC -MMD -MP -MF"$(@:%.o=%.d)" -MT"main.d" -o"$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 

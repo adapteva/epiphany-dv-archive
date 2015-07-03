@@ -43,7 +43,7 @@ all: mgen
 mgen: $(OBJS) $(USER_OBJS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: GCC C++ Linker'
-	g++-4.1 -L/usr/local/systemc/systemc-2.2/lib-linux -Xlinker -rpath /usr/local/systemc/systemc-2.2/lib-linux -o"mgen" $(OBJS) $(USER_OBJS) $(LIBS)
+	g++ -L/usr/local/systemc-2.3.1/lib-linux -L/usr/local/scv/lib-linux -Xlinker -rpath /usr/local/systemc-2.3.1/lib-linux -o"mgen" $(OBJS) $(USER_OBJS) $(LIBS)
 	@echo 'Finished building target: $@'
 	@echo ' '
 
