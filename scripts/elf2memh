@@ -4,12 +4,13 @@ use Getopt::Long
 $Version = "0.0";
 my $Usage =<<EOF;
 #####################################################################
-#Function  : Converts ELF Dumpfile to Simulator loader format
-#Version   : REV0.1.0, Released December 31 2009
-#Copyright : Copyright (C) 2009 Adapteva Inc.
-#License   : Adapteva Confidential. All rights reserved.
+#Function  : Converts ELF Dumpfile to Verilog "memh" file
+#Author    : Andreas Olofsson
+#License   : BSD 3-Clause License (a copy at bottom of file)
 #####################################################################
 #Usage      : elf2memh -elf  <ElfFile>
+#
+#Prerequisites: e-readelf
 #####################################################################
 EOF
 #Defining options to parse
@@ -36,17 +37,22 @@ system("e-readelf -x .text $opt_elf > $opt_elf.hex");
 
 open(FILE,"$opt_elf.hex");
 while(<FILE>){
-  #print "T=$Text TR=$Translate $_";
-    if(/0x(\w+)\s(\w+)\s(\w+)\s(\w+)\s(\w+)/){
+    if(/0x(\w+)\s([\w\s]+)/){
 	chomp($_);
 	$addr=$1;
-	$data=$2.$3.$4.$5;
+	$data=$2;
+	$data=~ s/\s//g;
 	@array=split('(\w\w)',$data);
 	$rdata="";
+	#treating short vectors
+	for ($i=0;$i<(31-$#array);$i++){
+	    $rdata=$rdata."0";
+	}
+	#reversing the data
 	for ($i=$#array; $i>=0;$i--){
 	    $rdata=$rdata.$array[$i];
-	    #print "$array[$i]";
-	}	
+	}
+
 	$rdata0= substr $rdata, 16, 16;
 	$rdata1= substr $rdata, 0, 16;	
 	print "\@$addr\n";
@@ -57,3 +63,33 @@ while(<FILE>){
     }
 }
 
+##################################################################
+#Copyright (c) 2010, Andreas Olofsson, Adapteva, Inc
+#All rights reserved.
+#
+#Redistribution and use in source and binary forms, with or without modification,
+#are permitted provided that the following conditions are met:
+#
+#Redistributions of source code must retain the above copyright notice, this
+#list of conditions and the following disclaimer.
+
+#Redistributions in binary form must reproduce the above copyright notice, this
+#list of conditions and the following disclaimer in the documentation and/or
+#other materials provided with the distribution.
+
+#Neither the name of the copyright holders nor the names of its
+#contributors may be used to endorse or promote products derived from
+#this software without specific prior written permission.
+#
+#THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+#ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+#WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+#DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+#ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+#(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+#LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+#ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+#(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+#SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+########################################################################
