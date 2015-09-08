@@ -424,17 +424,17 @@ end
 endif
 
 
-
-set hostname = `hostname`
-if("${hostname}" == "lithium" || "${hostname}" == "dmb89") then
-	set path = ( /home/oraikhman/maxwell_tools_build/linux26_x86_64/bin/ $path )
-else 
-
-    	pushd /soft/devtools/
-  		source /soft/devtools/setup.csh
- 		popd
-	
-endif
+#TODO: Fix these paths!!
+#set hostname = `hostname`
+#if("${hostname}" == "lithium" || "${hostname}" == "dmb89") then
+#	set path = ( /home/oraikhman/maxwell_tools_build/linux26_x86_64/bin/ $path )
+#else 
+#
+#    	pushd /soft/devtools/
+#  		source /soft/devtools/setup.csh
+# 		popd
+#	
+#endif
 
 #EXPORT
 

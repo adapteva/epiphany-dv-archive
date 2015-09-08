@@ -1,0 +1,59 @@
+#!/usr/bin/perl
+#use strict
+use Getopt::Long
+$Version = "0.0";
+my $Usage =<<EOF;
+#####################################################################
+#Function  : Converts ELF Dumpfile to Simulator loader format
+#Version   : REV0.1.0, Released December 31 2009
+#Copyright : Copyright (C) 2009 Adapteva Inc.
+#License   : Adapteva Confidential. All rights reserved.
+#####################################################################
+#Usage      : elf2memh -elf  <ElfFile>
+#####################################################################
+EOF
+#Defining options to parse
+my $result =  GetOptions('elf:s');
+if(defined $opt_h){
+ print "$Usage";
+ print "
+#-elf      : Path to elf dump file
+#
+";
+}
+elsif((!defined $opt_elf)){
+  print "$Usage";               
+  exit;
+}   
+
+#####################################################################
+##CONVERTING ELF TO TEXT
+#####################################################################
+system("e-readelf -x .text $opt_elf > $opt_elf.hex");
+
+#####################################################################
+##READING ELF DUMP INTO ARRAY
+
+open(FILE,"$opt_elf.hex");
+while(<FILE>){
+  #print "T=$Text TR=$Translate $_";
+    if(/0x(\w+)\s(\w+)\s(\w+)\s(\w+)\s(\w+)/){
+	chomp($_);
+	$addr=$1;
+	$data=$2.$3.$4.$5;
+	@array=split('(\w\w)',$data);
+	$rdata="";
+	for ($i=$#array; $i>=0;$i--){
+	    $rdata=$rdata.$array[$i];
+	    #print "$array[$i]";
+	}	
+	$rdata0= substr $rdata, 16, 16;
+	$rdata1= substr $rdata, 0, 16;	
+	print "\@$addr\n";
+	print "$rdata0\n";
+	$addr= sprintf("%08x",hex($addr)+8);
+	print "\@$addr\n";
+	print "$rdata1\n";
+    }
+}
+
